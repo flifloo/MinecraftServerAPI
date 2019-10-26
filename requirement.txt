@@ -1,0 +1,13 @@
+Click==7.0
+dnspython==1.15.0
+dnspython3==1.15.0
+Flask==1.1.1
+Flask-JWT==0.3.2
+itsdangerous==1.1.0
+Jinja2==2.10.3
+MarkupSafe==1.1.1
+mcrcon==0.5.2
+mcstatus==2.2.1
+PyJWT==1.4.2
+six==1.12.0
+Werkzeug==0.16.0
