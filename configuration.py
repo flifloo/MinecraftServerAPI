@@ -49,6 +49,9 @@ mcq = None  # Setup Query
 
 
 def update_mc():
+    """
+    Update Rcon and Query with configuration
+    """
     global mcr, mcq
     mcr = MCRcon(conf["Server ip"], conf["Rcon passwd"], conf["Rcon port"])
     mcq = MinecraftServer(conf["Server ip"], conf["Query port"])
