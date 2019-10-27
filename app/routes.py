@@ -1,99 +1,14 @@
-import json
 import logging
+import json
 import subprocess
-from os import urandom
 from os.path import isfile
 from pathlib import Path
 from time import sleep
 
-from flask import Flask, abort, jsonify, request
-from flask_jwt import JWT, jwt_required
-from mcrcon import MCRcon
-from mcstatus import MinecraftServer
-from werkzeug.security import check_password_hash, generate_password_hash
-
-
-# Create default configuration file
-if not isfile("config.json"):
-    logging.info("No config file, creating nwe one")
-    conf = {
-        "Key": str(urandom(24)),
-        "Users": {"admin": generate_password_hash("admin")},
-        "Path": "",
-        "Jar server": "server.jar",
-        "Server min ram": "1024M",
-        "Server max ram": "1024M",
-        "Server ip": "127.0.0.1",
-        "Rcon port": 25575,
-        "Rcon passwd": "admin",
-        "Query port": 25565,
-        "Properties": {}
-    }
-    with open("config.json", "w") as conf_file:
-        json.dump(conf, conf_file)
-
-# Load configuration file
-with open("config.json", "r") as conf_file:
-    logging.info("Loading configurations")
-    conf = json.load(conf_file)
-
-# Check s server jar exist
-if not isfile(Path(conf["Path"])/conf["Jar server"]):
-    logging.warning("No server jar found !")
-    exit()
-# Enable elua by default
-if not isfile(Path(conf["Path"])/"eula.txt"):
-    logging.info("No elua.txt, creating new one")
-    with open(Path(conf["Path"])/"eula.txt") as elua:
-        elua.write("eula=true")
-
-
-# Configuration of flask
-class Config(object):
-    SECRET_KEY = conf["Key"]
-    JWT_AUTH_USERNAME_KEY = "username"
-
-
-# User object for JWT
-class User(object):
-    def __init__(self, id, username, password):
-        self.id = id
-        self.username = username
-        self.password = password
-
-    def __str__(self):
-        return "User(id='%s')" % self.id
-
-
-# Convert user form config to User object
-# TODO: Support config change
-users = list()
-for i, u in enumerate(conf["Users"]):
-    users.append(User(i+1, u, conf["Users"][u]))
-username_table = {u.username: u for u in users}
-userid_table = {u.id: u for u in users}
-
-
-def authenticate(username, password):
-    """
-    Authentication for JWT
-    :param username: User's username (str)
-    :param password: User's password
-    :return: User's object if correct username and password
-    """
-    user = username_table.get(username, None)
-    if user and check_password_hash(user.password, password):
-        return user
-
-
-def identity(payload):
-    """
-    Get identity for JWT
-    :param payload: JWT payload
-    :return: User's object
-    """
-    user_id = payload["identity"]
-    return userid_table.get(user_id, None)
+from app import app, server
+from configuration import conf, mcr, mcq, update_users, update_mc
+from flask import abort, jsonify, request
+from flask_jwt import jwt_required
 
 
 def update_properties():
@@ -120,16 +35,6 @@ def update_properties():
         # Save configuration changes
         with open(Path(conf["Path"]) / "server.properties", "w") as properties_file:
             properties_file.write(properties)
-
-
-# Setup of globals variables
-app = Flask(__name__)  # Setup Flask's app
-app.config.from_object(Config)  # Import Flask configuration
-# TODO: support config change
-mcr = MCRcon(conf["Server ip"], conf["Rcon passwd"], conf["Rcon port"])  # Setup Rcon
-mcq = MinecraftServer(conf["Server ip"], conf["Query port"])  # Setup Query
-jwt = JWT(app, authenticate, identity)  # Setup JWT
-server = None  # Init server
 
 
 @app.route("/")
@@ -261,9 +166,6 @@ def update_config():
     # Save configuration changes
     with open("config.json", "w") as conf_file:
         json.dump(conf, conf_file)
+    update_users()
+    update_mc()
     return jsonify(conf)
-
-
-# Start of the program
-if __name__ == "__main__":
-    app.run(ssl_context="adhoc")
