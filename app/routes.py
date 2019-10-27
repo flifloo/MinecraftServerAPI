@@ -78,6 +78,9 @@ def start():
             while server.isalive():
                 sleep(1)
             start()  # Start again the server
+        # Wait the log file to be archived
+        while open(Path(conf["Path"])/"logs"/"latest.log", "r").read() != "":
+            sleep(1)
         return "Ok"
     else:
         abort(400, "Server is running")
