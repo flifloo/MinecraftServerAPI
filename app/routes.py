@@ -1,6 +1,6 @@
 import logging
 import json
-import subprocess
+import pexpect
 from os.path import isfile
 from pathlib import Path
 from time import sleep
@@ -44,7 +44,7 @@ def root():
     Show server status
     :return: Actual status of the server
     """
-    if server and server.poll() is None:  # Check is server is online
+    if server and server.isalive():  # Check is server is online
         try:  # In case of connexion errors
             status = mcq.status()
             query = mcq.query()
@@ -64,18 +64,18 @@ def start():
     :return: Ok if everything is fine, 400 error f server already running
     """
     global server  # Get the global value for reallocation
-    if not server or server.poll() is not None:  # Check if the server is offline
+    if not server or not server.isalive():  # Check if the server is offline
         update_properties()  # Update server.properties
         # Start the server
-        server = subprocess.Popen(["java", "-Xms"+conf["Server min ram"], "-Xmx"+conf["Server max ram"], "-jar",
-                                   conf["Jar server"], "nogui"], stdout=subprocess.PIPE, cwd=Path(conf["Path"]))
+        server = pexpect.spawn("java", ["-Xms"+conf["Server min ram"], "-Xmx"+conf["Server max ram"], "-jar",
+                                        conf["Jar server"], "nogui"], cwd=Path(conf["Path"]), echo=False)
         if not isfile(Path(conf["Path"]) / "server.properties"):  # If no server.properties reboot to apply the changes
             # Wait the creation of the properties fle
             while not isfile(Path(conf["Path"]) / "server.properties"):
                 sleep(1)
-            kill()  # Kill the server because no Rcon connection
-            # Wait for subprocesse full exit
-            while server.poll() is None:
+            kill()  # Kill the server
+            # Wait for processe full exit
+            while server.isalive():
                 sleep(1)
             start()  # Start again the server
         return "Ok"
@@ -90,7 +90,7 @@ def stop():
     Stop the server
     :return: The result of the /stop command or 400 error if server is not running
     """
-    if server and server.poll() is None:  # Check if server is running
+    if server and server.isalive():  # Check if server is running
         return cmd("/stop")  # Launch /stop command
     else:
         abort(400, "Server is not running")
@@ -103,25 +103,52 @@ def kill():
     Kill the server
     :return: Ok or 400 if the server is not running
     """
-    if server and server.poll() is None:  # Check if the server is running
-        server.kill()  # Kill the subprocess
+    if server and server.isalive():  # Check if the server is running
+        server.terminate()  # Kill the process
         return "Ok"
     else:
         abort(400, "Server is not running")
 
 
-@app.route("/cmd/<cmd>")
+@app.route("/cmd", methods=["POST"])
 @jwt_required()
-def cmd(cmd):
+def cmd(command=None):
+    """
+    Execute a command by stdin on the server
+    :param command: The command to execute
+    :return: Ok or 400 if server is not running
+    """
+    if not command:
+        try:
+            command = request.json["command"]
+        except (json.JSONDecodeError, KeyError):
+            raise TypeError
+
+    if server and server.isalive():
+        server.sendline(command)
+        return "Ok"
+    else:
+        abort(400, "Server is not running")
+
+
+@app.route("/rcmd", methods=["POST"])
+@jwt_required()
+def rcmd(command=None):
     """
     Execute a command by Rcon on the server
-    :param cmd: The command to execute
+    :param command: The command to execute
     :return: The result of the command or 400 error if server not running also if Rcon connexion fail
     """
-    if server and server.poll() is None:  # Check if server is running
+    if not command:
+        try:
+            command = request.json["command"]
+        except (json.JSONDecodeError, KeyError):
+            raise TypeError
+
+    if server and server.isalive():  # Check if server is running
         try:  # In case of Rcon connexion fail
             with mcr:  # Open a Rco connexion
-                resp = mcr.command(cmd)  # Send the command
+                resp = mcr.command(command)  # Send the command
         except (TimeoutError, ConnectionRefusedError):
             abort(400, "Server did not respond")
         else:
@@ -137,7 +164,7 @@ def logs():
     Get the server logs
     :return: Server last logs or 400 error if server is not running
     """
-    if server and server.poll() is None:  # Check if server is running
+    if server and server.isalive():  # Check if server is running
         return open(Path(conf["Path"])/"logs"/"latest.log", "r").read()  # Send the content of the server logs
     else:
         abort(400, "Server is not running")
